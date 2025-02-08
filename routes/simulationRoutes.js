@@ -11,11 +11,40 @@ const generateRandomTrades = async (req, res) => {
     const stocks = await Stock.find();
 
     for (let i = 0; i < 100; i++) {
-      // Select random user and stock
       const randomUser = users[Math.floor(Math.random() * users.length)];
       const randomStock = stocks[Math.floor(Math.random() * stocks.length)];
       const tradeType = Math.random() > 0.5 ? 'BUY' : 'SELL';
-      const quantity = Math.floor(Math.random() * 10) + 1; // Random quantity 1-10
+      const quantity = Math.floor(Math.random() * 10) + 1;
+
+      // Check if user owns enough of the stock before attempting to sell
+      if (tradeType === 'SELL') {
+        const userStock = randomUser.stocksOwned.find(
+          stock => stock.stockId.toString() === randomStock._id.toString()
+        );
+        
+        if (!userStock || userStock.quantity < quantity) {
+          // Skip this trade and try to generate a buy trade instead
+          const buyTradeResult = await executeBuyTrade(randomUser, randomStock, quantity);
+          if (!buyTradeResult.success) {
+            continue; // Skip if buy also fails
+          }
+          
+          trades.push({
+            userId: randomUser._id,
+            userName: randomUser.name,
+            stockId: randomStock._id,
+            stockName: randomStock.name,
+            tradeType: 'BUY',
+            quantity,
+            price: randomStock.price,
+            status: 'SUCCESS',
+            message: "Converted to buy trade",
+            profitLoss: randomUser.profitLoss,
+            timestamp: new Date()
+          });
+          continue;
+        }
+      }
 
       let tradeResult;
       if (tradeType === 'BUY') {
@@ -24,29 +53,31 @@ const generateRandomTrades = async (req, res) => {
         tradeResult = await executeSellTrade(randomUser, randomStock, quantity);
       }
 
-      trades.push({
-        userId: randomUser._id,
-        userName: randomUser.name,
-        stockId: randomStock._id,
-        stockName: randomStock.name,
-        tradeType,
-        quantity,
-        price: randomStock.price,
-        status: tradeResult.success ? 'SUCCESS' : 'FAILED',
-        message: tradeResult.message,
-        profitLoss: randomUser.profitLoss,
-        timestamp: new Date()
-      });
+      if (tradeResult.success) {
+        trades.push({
+          userId: randomUser._id,
+          userName: randomUser.name,
+          stockId: randomStock._id,
+          stockName: randomStock.name,
+          tradeType,
+          quantity,
+          price: randomStock.price,
+          status: 'SUCCESS',
+          message: tradeResult.message,
+          profitLoss: randomUser.profitLoss,
+          timestamp: new Date()
+        });
+      }
     }
 
-    // Remove sorting by profit/loss, keep chronological order
     res.json({
       totalTrades: trades.length,
       successfulTrades: trades.filter(t => t.status === 'SUCCESS').length,
       failedTrades: trades.filter(t => t.status === 'FAILED').length,
-      trades: trades // Return trades in original order
+      trades: trades
     });
   } catch (error) {
+    console.error('Simulation Error:', error);
     res.status(500).json({ message: error.message });
   }
 };
